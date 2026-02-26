@@ -1,7 +1,7 @@
 # SimSage Search UX REACT version
 
 SimSage Search UX is the ReactJS + TypeScript interface of the SimSage Semantic Search engine.  This code is
-Apache v2 licensed and meant for our partners and clients to use and change as they see fit.
+GPL v3 licensed and meant for our partners and clients to use and change as they see fit.
 
 
 ![Screenshot 1](screenshots/search-screenshot-1.png)
