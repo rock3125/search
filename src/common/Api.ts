@@ -1,17 +1,14 @@
 import '../types';
 
-// @ts-ignore
-import arista from "../assets/images/brand/brand_arista.png"
+import malaghan from "../assets/images/brand/brand_malaghan.png"
+import hemubo from "../assets/images/brand/brand_hemubo.png"
+import wcc_light from "../assets/images/brand/wcc-logo.svg"
+import wcc_dark from "../assets/images/brand/wcc-logo-dark.svg"
+import icc from "../assets/images/brand/brand_icc.png"
 import es_light from "../assets/images/brand/brand_enterprise-search.svg"
 import es_dark from "../assets/images/brand/brand_enterprise-search-dark.svg"
-// @ts-ignore
 import img_egnyte from "../assets/images/source-icons/egnyte-icon.png"
-// @ts-ignore
-import img_aid from "../assets/images/source-icons/arista-icon.png"
-// @ts-ignore
-import img_review_board from "../assets/images/source-icons/reviewboard-icon.png"
-// @ts-ignore
-import img_release_tracker from "../assets/images/source-icons/tracker-icon.png"
+import img_open_text from "../assets/images/source-icons/opentext-icon.png"
 import img_aws from "../assets/images/source-icons/icon_ci-aws.svg"
 import img_box from "../assets/images/source-icons/icon_ci-box.svg"
 import img_xml from "../assets/images/source-icons/icon_ci-xml.svg"
@@ -22,9 +19,9 @@ import img_zendesk from "../assets/images/source-icons/icon_ci-zendesk.svg"
 import img_confluence from "../assets/images/source-icons/icon_ci-confluence.svg"
 import img_alfresco from "../assets/images/source-icons/icon_ci-alfresco.svg"
 import img_web from "../assets/images/source-icons/icon_ci-web.svg"
+import img_web_2 from "../assets/images/source-icons/icon_ci-web-2.svg"
 import img_discourse from "../assets/images/source-icons/icon_ci-discourse.svg"
 import img_service_now from "../assets/images/source-icons/icon_ci-servicenow.svg"
-import img_bugs from "../assets/images/source-icons/bugs-icon.svg"
 import img_office from "../assets/images/source-icons/icon_ci-office.svg"
 import img_sharepoint from "../assets/images/source-icons/icon_ci-sharepoint.svg"
 import img_outlook from "../assets/images/source-icons/icon_ci-outlook.svg"
@@ -34,13 +31,25 @@ import img_rss from "../assets/images/source-icons/icon_ci-rss.svg"
 import img_imanage from "../assets/images/source-icons/icon_ci-imanage.svg"
 import img_file from "../assets/images/source-icons/icon_ci-nfs.svg"
 import img_dropbox from "../assets/images/source-icons/icon_ci-dropbox.svg"
-import {ActionWithError, HeadersConfig, SourceItem, User} from "../types";
+import img_arc from "../assets/images/source-icons/icon_ci-arcgis.svg"
+import {
+    ActionWithError,
+    HeadersConfig, LLMState,
+    SourceGroup,
+    SourceItem,
+    User
+} from "../types";
+import axios from "axios";
 
 // Export hashtag_metadata constant
 export const hashtag_metadata = "{hashtag}";
 export const user_metadata_marker = "user-"
 // used as a marker for url_of_archive:::path_to_child_inside_archive
 export const archive_separator = ":::"
+
+// ==================
+// Time conversion
+// ==================
 
 // is value defined and not null?
 export function defined(value: any): boolean {
@@ -68,13 +77,28 @@ export function do_fetch(url: string, session_id: string, fn_success?: () => voi
     if (!session_id || session_id.length === 0)
         session_id = "";
 
-    fetch(url, {headers: {"session-id": session_id}})
-        .then((response) => response.blob())
-        .then((blob) => { // RETRIEVE THE BLOB AND CREATE LOCAL URL
-            if (fn_success)
-                fn_success();
-            const _url = window.URL.createObjectURL(blob);
-            (window as any).open(_url, "_blank").focus(); // window.open + focus
+    let filename: string | undefined = undefined
+    axios.get(url, {headers: {"session-id": session_id}, responseType: 'blob'})
+        .then((response) => {
+            const disposition = response.headers['content-disposition']
+            if (disposition && disposition.includes('attachment')) {
+                const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+                const matches = filenameRegex.exec(disposition);
+                if (matches != null && matches[1]) {
+                    filename = matches[1].replace(/['"]/g, '');
+                }
+            }
+
+            filename = filename ?? 'downloaded-file';
+            const _url = window.URL.createObjectURL(response.data);
+            const link = document.createElement('a');
+            link.href = _url;
+            link.setAttribute('download', filename)
+            document.body.appendChild(link)
+            link.click()
+            link.remove()
+            window.URL.revokeObjectURL(url)
+
         }).catch((error) => {
         if (fn_fail) {
             if (error.response === undefined) {
@@ -88,10 +112,7 @@ export function do_fetch(url: string, session_id: string, fn_success?: () => voi
 
 // download local
 export function download_document(dl_url: string, session_id: string) {
-    if (is_archive(dl_url)) {
-        alert("archive files cannot be downloaded");
-
-    } else if (!session_id || session_id.trim().length === 0) {
+    if (!session_id || session_id.trim().length === 0) {
         alert("you must sign-in to download documents");
 
     } else {
@@ -510,10 +531,21 @@ export function get_archive_child_last(url: string): string {
 
 // Extract the parent part of an archive URL
 export function get_archive_parent(url: string): string {
-    if (url && url.indexOf(archive_separator) >= 0) {
+    if (url && url.indexOf(archive_separator) > 0) {
         const parts = url.split(archive_separator);
         if (parts.length > 0) {
             return parts[0];
+        }
+    }
+    return url;
+}
+
+// get a pretty print version for an archive file
+export function get_archive_pretty_print(url: string): string {
+    if (url && url.indexOf(archive_separator) > 0) {
+        const parts = url.split(archive_separator);
+        if (parts.length === 2) {
+            return parts[1] + " inside " + parts[0];
         }
     }
     return url;
@@ -524,22 +556,8 @@ export function is_archive_file(url: string): boolean {
     return !!(url && url.indexOf(archive_separator) >= 0);
 }
 
-// Check if a URL is an archive
-export function is_archive(url: string): boolean {
-    return !!(url && url.indexOf(archive_separator) >= 0);
-}
-
 // Check if a URL is viewable in the browser
 export function is_viewable(url: string): boolean {
-    if (url) {
-        const lwr = url.toLowerCase();
-        return lwr.startsWith('http://') || lwr.startsWith('https://');
-    }
-    return false;
-}
-
-// Check if a URL is online
-export function is_online(url: string): boolean {
     if (url) {
         const lwr = url.toLowerCase();
         return lwr.startsWith('http://') || lwr.startsWith('https://');
@@ -577,10 +595,32 @@ export function highlight(text: string, theme: string): string {
 }
 
 // Download a document
+// any viewable (i.e., http link) can only download the parent (the original)
+// however, the download_document function can download anything inside that archive, but not the original archive itself
 export function download(url: string, session_id: string): void {
     if (url && session_id) {
-        window.open(url, '_blank');
+        if (is_viewable(url)) {
+            // url here must be the parent to open it - since this is online, and the contents of the archive won't be
+            window.open(get_archive_parent(url), '_blank');
+        } else {
+            // must be the child to download it - can't download archive parents - but SimSage knows about the children
+            download_document(url, session_id);
+        }
     }
+}
+
+// download local
+export function open_document_locally(dl_url: string) {
+    const socket = new WebSocket('ws://localhost:' + window.ENV.file_opener_ws_port);
+    socket.onopen = () => {
+        console.log("requesting desktop assistant to open \"" + dl_url + "\"")
+        socket.send('\nopen ' + dl_url + '\n')
+        socket.close()
+    }
+    // It's also wise to handle potential errors
+    socket.onerror = (error) => {
+        console.error("WebSocket Error: ", error)
+    };
 }
 
 // Get the full username
@@ -592,6 +632,32 @@ export function get_full_username(user: User): string {
         return user.email || '';
     }
     return '';
+}
+
+// Get the user's initials
+export function get_initials(user: User): string {
+    if (user) {
+        if (user.firstName && user.surname && user.firstName.length > 0 && user.surname.length > 0) {
+            const surname_list = user.surname.split(' ');
+            const surname = surname_list[surname_list.length - 1].trim().toUpperCase();
+            return user.firstName.trim().toUpperCase()[0] + surname[0];
+        }
+    }
+    return 'YOU';
+}
+
+export function empty_llm_state(): LLMState {
+    return {
+        organisationId: "",
+        kbId: "",
+        conversationList: [],
+        focus_id: 0,
+        documentTypeFilter: [],
+        metadataUrl: "",
+        sourceFilter: "",
+        url: "",
+        language: ""
+    }
 }
 
 // Limit text to a certain length
@@ -655,22 +721,20 @@ export function time_ago(timestamp: number): string {
 // Define the source icons as an object instead of an enum
 const SOURCE_ICONS = {
     EGNYTE: img_egnyte,
-    AID: img_aid,
-    REVIEW_BOARD: img_review_board,
-    RELEASE_TRACKER: img_release_tracker,
     AWS: img_aws,
     BOX: img_box,
     XML: img_xml,
     GDRIVE: img_gdrive,
     JIRA: img_jira,
+    ARCGIS: img_arc,
     SLACK: img_slack,
     ZENDESK: img_zendesk,
     CONFLUENCE: img_confluence,
     ALFRESCO: img_alfresco,
     WEB: img_web,
+    WEB_LINK: img_web_2,
     DISCOURSE: img_discourse,
     SERVICE_NOW: img_service_now,
-    BUGS: img_bugs,
     OFFICE: img_office,
     SHAREPOINT: img_sharepoint,
     OUTLOOK: img_outlook,
@@ -680,6 +744,7 @@ const SOURCE_ICONS = {
     IMANAGE: img_imanage,
     FILE: img_file,
     DROPBOX: img_dropbox,
+    OPEN_TEXT: img_open_text,
 
     DEFAULT: 'default'
 };
@@ -688,20 +753,29 @@ const SOURCE_ICONS = {
 export function get_icon_src(source: any): string {
     if (!source || !source.name)
         return SOURCE_ICONS.DEFAULT
-    let icon_src = window.ENV.source_icons[source.name.trim().toLowerCase()]
-    if (icon_src)
-        return icon_src
     if (!source.sourceType)
         return SOURCE_ICONS.DEFAULT
-    switch (source.sourceType.toLowerCase()) {
+    return get_icon_for_source_type(source.sourceType)
+}
+
+// Get the icon source for a source item
+export function get_icon_for_source_type(source_type: string): string {
+    let icon_src = SOURCE_ICONS.DEFAULT
+    switch (source_type.toLowerCase()) {
         case 'aws':
             icon_src = SOURCE_ICONS.AWS;
             break;
         case 'jira':
             icon_src = SOURCE_ICONS.JIRA;
             break;
+        case 'arc':
+            icon_src = SOURCE_ICONS.ARCGIS;
+            break;
         case 'egnyte':
             icon_src = SOURCE_ICONS.EGNYTE;
+            break;
+        case 'opentext':
+            icon_src = SOURCE_ICONS.OPEN_TEXT;
             break;
         case 'slack':
             icon_src = SOURCE_ICONS.SLACK;
@@ -752,6 +826,9 @@ export function get_icon_src(source: any): string {
         case 'web':
             icon_src = SOURCE_ICONS.WEB;
             break;
+        case 'web-link':
+            icon_src = SOURCE_ICONS.WEB_LINK;
+            break;
         case 'xml':
             icon_src = SOURCE_ICONS.XML;
             break;
@@ -768,7 +845,7 @@ export function get_icon_src(source: any): string {
             icon_src = SOURCE_ICONS.DEFAULT;
             break;
     }
-    return icon_src ?? SOURCE_ICONS.DEFAULT
+    return icon_src
 }
 
 // Get source for a result
@@ -807,7 +884,7 @@ export function preview_image_url(session_id: string, result: any): string {
 export function unix_time_convert(unix_timestamp: number): string {
     if (unix_timestamp) {
         const date = new Date(unix_timestamp);
-        return date.toLocaleDateString();
+        return date.toLocaleString(undefined, window.ENV.date_options);
     }
     return '';
 }
@@ -1140,8 +1217,14 @@ export const language_lookup: Record<string, string> = {
 // get a logo for the current user to display in the UX
 export function get_enterprise_logo(theme: string): string {
     const customer = window.ENV.customer;
-    if (customer === 'arista') {
-        return arista
+    if (customer === 'malaghan') {
+        return malaghan
+    } else if (customer === 'hemubo') {
+        return hemubo
+    } else if (customer === 'wcc') {
+        if (theme === 'light') return wcc_light; else return wcc_dark;
+    } else if (customer === 'icc') {
+        return icc
     } else {
         if (theme === "light")
             return es_light
@@ -1153,6 +1236,11 @@ export function get_enterprise_logo(theme: string): string {
 // Convert URL to breadcrumb format
 export function url_to_bread_crumb(url: string): string {
     if (!url) return '';
+
+    // unc?
+    if (url.startsWith("\\\\")) {
+        return url.substring(2).replace(/\\/g, '/')
+    }
 
     // Remove protocol
     let breadcrumb = url.replace(/^(https?:\/\/)?(www\.)?/, '');
@@ -1171,25 +1259,279 @@ export function url_to_bread_crumb(url: string): string {
     return breadcrumb;
 }
 
-// Extract hashtags from metadata
+// Extract hashtags from metadata as a list
 export function get_hashtag_list(metadata: Record<string, string>): Array<{key: number, value: string}> {
     const hashtag_list: Array<{key: number, value: string}> = [];
-
-    if (metadata) {
+    if (metadata && metadata.hasOwnProperty(hashtag_metadata)) {
+        const values = metadata[hashtag_metadata];
         let index = 0;
-        for (const [key, value] of Object.entries(metadata)) {
-            if (key.startsWith('#') || (value && value.startsWith('#'))) {
+        for (const item of values.split(',')) {
+            if (item.startsWith('#')) {
                 hashtag_list.push({
                     key: index++,
-                    value: value.startsWith('#') ? value : key
-                });
+                    value: item
+                })
+            }
+        }
+    }
+    return hashtag_list;
+}
+
+/**
+ * get a filtered / grouped source list for displaying given a list of source items
+ *
+ * @param source_list   the list of source items
+ * @param source_values the selected (by sourceId) source items, map[string] => boolean
+ * @param source_filter a string filter
+ * @param source_id_count a count map for the sources
+ */
+export function get_source_list(
+    source_list: SourceItem[],
+    source_values: {[key: string]: boolean},
+    source_filter: string,
+    source_id_count?: {[key: string]: number}
+): SourceGroup[] {
+    //Pull in all sources
+    let items: SourceItem[] = source_list && source_list.length > 0 ? source_list : [];
+    let source_group_list: SourceGroup[] = [];
+    //If the override grouping exists we add their names to the groupItems array
+    if (window.ENV.override_source_list && window.ENV.override_source_list.length > 0) {
+        window.ENV.override_source_list.forEach((obj: any) => {
+            let temp: SourceGroup = {name: obj.name, sources: []};
+            source_group_list.push(temp);
+        });
+    }
+
+    const total = Object.values(source_id_count ?? {})
+        .reduce((acc, count) => acc + count, 0);
+
+
+    //Adding in items as an individual or into their group.
+    items.forEach((item) => {
+        if (window.ENV.override_source_list && window.ENV.override_source_list.length > 0) {
+            let inGroup = false;
+            for (let i = 0; i < window.ENV.override_source_list.length; i++) {
+                if (window.ENV.override_source_list[i].sources.includes(item.name)) {
+                    source_group_list[i].sources.push(item);
+                    inGroup = true;
+                }
+            }
+            if (!inGroup) {
+                let temp: SourceGroup = {name: item.name, sources: [item]};
+                source_group_list.push(temp);
+            }
+        } else {
+            source_group_list.push(item as unknown as SourceGroup);
+        }
+    });
+
+    if (total > 0) {
+        source_group_list = source_group_list
+            .sort((a, b) => {
+                const idA = String(a.sourceId || "");
+                const idB = String(b.sourceId || "");
+                const countA = source_id_count ? (source_id_count[idA] ?? 0) : 0
+                const countB = source_id_count ? (source_id_count[idB] ?? 0) : 0
+                if (countA > countB) return -1
+                if (countA < countB) return 1
+                return idA.localeCompare(idB)
+            })
+    } else {
+        source_group_list = source_group_list
+            .sort((a, b) => (a.type && b.type && a.type > b.type) ? -1 : 1)
+    }
+    const trim_filter = source_filter.trim().toLowerCase();
+    source_group_list = source_group_list
+        .filter((item) => {
+            return trim_filter.length === 0 || source_values[item.sourceId as string] ||
+                item.name.toLowerCase().indexOf(trim_filter) >= 0;
+        });
+    return source_group_list;
+}
+
+
+/**
+ * add or remove metadata: value from the search text depending on its value(s)
+ *
+ * @param search_text the user's search text to update
+ * @param metadata    the metadata field in question
+ * @param value       the value of this metadata field
+ */
+export function update_search_text_text(search_text: string, metadata: string, value: string): string {
+    const v_trim = value.trim();
+
+    const t_list = tokenize(search_text);
+    const t_size = t_list.length;
+    let new_t_list: string[] = [];
+    let found = false;
+    let i = 0;
+
+    while (i < t_size) {
+        const token = t_list[i];
+
+        // Check for 'metadata' followed by ':'
+        if (token === metadata && i + 1 < t_size && t_list[i + 1] === ':') {
+            found = true;
+
+            if (v_trim.length > 0) {
+                // ADD/UPDATE: Add the 'metadata:' part
+                new_t_list.push(token);     // 'metadata'
+                new_t_list.push(t_list[i + 1]); // ':'
+
+                // Add new value, quoting if necessary
+                const new_value_tokens = tokenize(v_trim);
+                if (new_value_tokens.length > 1) {
+                    // Value has spaces/symbols, needs quotes
+                    new_t_list.push('"');
+                    new_t_list = new_t_list.concat(new_value_tokens);
+                    new_t_list.push('"');
+                } else {
+                    // Simple, single-token value
+                    new_t_list = new_t_list.concat(new_value_tokens);
+                }
+            }
+            // If v_trim.length is 0, we are REMOVING, so we add nothing.
+
+            // Skip the old value tokens
+            i += 2; // Skip 'metadata' and ':'
+
+            if (i < t_size) {
+                if (t_list[i] === '"') {
+                    // Skip a quoted value
+                    i++; // Skip opening '"'
+                    while (i < t_size && t_list[i] !== '"') {
+                        i++; // Skip value part
+                    }
+                    if (i < t_size) i++; // Skip closing '"'
+                } else {
+                    // Skip an unquoted value (single token)
+                    i++; // Skip the value token
+                }
+            }
+
+        } else {
+            // Not the metadata we're looking for, just add the token
+            new_t_list.push(token);
+            i++;
+        }
+    }
+
+    // If we didn't find the metadata and we have a new value, add it.
+    if (!found && v_trim.length > 0) {
+        // Add a space if the existing text is not empty and doesn't end with a space
+        if (new_t_list.length > 0 && new_t_list[new_t_list.length - 1] !== ' ') {
+            new_t_list.push(" ");
+        }
+
+        new_t_list.push(metadata);
+        new_t_list.push(":");
+
+        // Add new value, quoting if necessary
+        const new_value_tokens = tokenize(v_trim);
+        if (new_value_tokens.length > 0) {
+            if (new_value_tokens.length > 1) {
+                new_t_list.push('"');
+                new_t_list = new_t_list.concat(new_value_tokens);
+                new_t_list.push('"');
+            } else {
+                new_t_list = new_t_list.concat(new_value_tokens);
             }
         }
     }
 
-    return hashtag_list;
+    // Reconstruct and clean up
+    let result = new_t_list.join("");
+    result = result.trim(); // Remove leading/trailing spaces
+    result = result.replace(/\s{2,}/g, ' '); // Replace multiple spaces with one
+
+    return result;
 }
 
-// Note: This is a partial conversion of Api.js
-// Only the functions needed for authSlice.ts have been converted
-// The rest of the file should be converted as needed
+
+/**
+ * update a metadata field's value according to what is in the search_text
+ *
+ * @param metadata       the metadata field
+ * @param value          it's value
+ * @param search_text    the user's search text
+ */
+export function update_md_text(metadata: string, value: string, search_text: string): string {
+    if (search_text.indexOf(metadata+":"+value.trim()) >= 0 || search_text.indexOf(metadata+":\""+value.trim()) >= 0)
+        return value
+    else
+        return ""
+}
+
+/**
+ * return what OS this is running on
+ *
+ * @return Windows (for default and Windows), OSX for Mac, and Android for Linux and Android
+ */
+export function detectOS(): "Windows" | "OSX" | "Android" {
+    const userAgent = window.navigator.userAgent.toLowerCase();
+
+    if (userAgent.includes('win')) {
+        return 'Windows';
+    }
+    if (userAgent.includes('mac')) {
+        return 'OSX';
+    }
+    if (userAgent.includes('linux')) {
+        return 'Android';
+    }
+    if (userAgent.includes('android')) {
+        return 'Android';
+    }
+    if (userAgent.includes('ios') || userAgent.includes('iphone') || userAgent.includes('ipad')) {
+        return 'OSX';
+    }
+    return 'Windows'; // default
+}
+
+/**
+ * helper for map_url below
+ *
+ * @param to_remap the URL string to look at for a possible re-map
+ * @param remapper if defined, a SourceUrlRemap structure with instructions for remapping (see settings.js)
+ * @return the to_remap if not matched, otherwise the remapped item
+ */
+function remap_url(to_remap: string, remapper: SourceUrlRemap | undefined): string {
+    if (!remapper) return to_remap;
+    let u1 = to_remap.replaceAll('\\', '/')
+    let u2 = remapper.starts_with.replaceAll('\\', '/')
+    if (u2.length > 0 && u2.length < u1.length &&
+        u1.toLowerCase().indexOf(u2.toLowerCase()) === 0) { // starts with?
+        return remapper.replace_with + u1.substring(u2.length);
+    }
+    return to_remap;
+}
+
+
+/**
+ * Change a url depending on the operating system
+ * unc: \\server\share\path\file.txt => smb://server/share/path/file.txt
+ *
+ * @param source_id the id of the source to map
+ * @param url the URL link/location for/of a file
+ * @return an SMB link for non-windows systems, and a UNC for Windows
+ */
+export function map_url(source_id: number, url: string): string {
+    if (source_id <= 0) return url
+    const is_win = detectOS() === "Windows"
+    // OSX or Linux mapping?
+    if (!is_win) {
+        const mappings = window.ENV.source_path_remapping_osx
+        const u1 = remap_url(url, mappings[source_id])
+        if (!u1.startsWith("\\\\")) // no need to change, not a UNC
+            return u1
+        // Replace UNC slashes and start with smb://
+        return "smb:" + u1.replaceAll('\\', '/')
+    } else {
+        // windows
+        const mappings = window.ENV.source_path_remapping_win
+        return remap_url(url, mappings[source_id])
+    }
+}
+
+// minimum screen width before we stop showing certain things
+export const min_width = 1180;

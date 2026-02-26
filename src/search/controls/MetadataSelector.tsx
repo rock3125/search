@@ -25,7 +25,7 @@ export function MetadataSelector(props: MetadataSelectorProps): JSX.Element {
     const dispatch = useAppDispatch();
     const { t } = useTranslation();
 
-    const { metadata_values, metadata_list, result_list } = useSelector((state: RootState) => state.searchReducer);
+    const { metadata_values, metadata_list, result_list,theme } = useSelector((state: RootState) => state.searchReducer);
 
     const metadata = props.metadata ? props.metadata : '';
     // selected values (if any)
@@ -74,13 +74,36 @@ export function MetadataSelector(props: MetadataSelectorProps): JSX.Element {
         }
     };
 
+    // invert the selection of all metadata values for this item
+    const invert_all = (): void => {
+        if (metadata_list && metadata) {
+            let metadata_item_list = null;
+            for (const item of metadata_list) {
+                if (item && item.items && item.metadata === metadata) {
+                    metadata_item_list = item.items;
+                }
+            }
+            if (metadata_item_list && metadata_item_list.length > 0) {
+                let new_values_set: Record<string, boolean> = {};
+                for (const item of metadata_item_list) {
+                    const new_value = !values[item.name];
+                    dispatch(set_metadata_value({metadata: metadata, name: item.name, checked: new_value}));
+                    new_values_set[item.name] = new_value;
+                }
+                if (props.on_search) {
+                    let new_values: Record<string, Record<string, boolean>> = {};
+                    new_values[metadata] = new_values_set;
+                    props.on_search({metadata_values: new_values});
+                }
+            }
+        }
+    };
+
     // get a filtered and cut-off item-list
     function get_item_list(): { items: MetadataItemCount[], has_reached_limit: boolean } {
         //Pull in all sources
         let items = props.list ? copy(props.list) : [];
         const trim_filter = filter.trim().toLowerCase();
-        // sort by name
-        items = items.sort((a: MetadataItemCount, b: MetadataItemCount) => (a.name < b.name) ? -1 : 1);
         // sort these items the complicated way
         let sorted_list: MetadataItemCount[] = [];
         // and then the items not yet selected
@@ -93,6 +116,15 @@ export function MetadataSelector(props: MetadataSelectorProps): JSX.Element {
                 sorted_list.push(newItem);
             }
         }
+
+        // sort by total or name
+        sorted_list = sorted_list.sort((a: MetadataItemCount, b: MetadataItemCount) => {
+            if (a.count !== undefined && b.count !== undefined) {
+                if (a.count < b.count) return 1
+                if (a.count > b.count) return -1
+            }
+            return (a.name < b.name) ? -1 : 1
+        })
 
         // apply the text filter if applicable - and filter items that have no count if there is a count
         sorted_list = sorted_list.filter((item) => {
@@ -117,35 +149,39 @@ export function MetadataSelector(props: MetadataSelectorProps): JSX.Element {
     const has_reached_limit = gil_results.has_reached_limit;
 
     return (
-        <div className="document-type-selector-width list-group pt-1 float-end">
+        <div className="document-type-selector-width list-group pt-1">
             {list.length >= 0 &&
                 <>
-                    <div>{title}
-                    <span title="select all sources">
-                    <button className="btn btn-sm btn-link" onClick={() => select_all(true)}>{t("select all")}</button>
-                    </span>
-                    <span title="deselect all sources">
-                    <button className="btn btn-sm btn-link" onClick={() => select_all(false)}>{t("clear")}</button>
-                    </span>
+                    <div className="mb-2">
+                        <span className={"text-bold me-4"}>{title}</span>
+                        <span title="select all document types">
+                            <span className="metadata-links" onClick={() => select_all(true)}>{t("Select all")}</span>
+                        </span>
+                        <span title={t("exclude document types")}>
+                            <span className="metadata-links" onClick={() => invert_all()}>{t("Exclude")}</span>
+                        </span>
+                        <span title="deselect all document types">
+                            <span className="metadata-links-bold" onClick={() => select_all(false)}>{t("Clear")}</span>
+                        </span>
                     </div>
                 </>
             }
-            {list.length >= 0 &&
-                <label className="list-group-item p-0 overflow-hidden">
-                    <input type="text" value={filter} placeholder={t("Filter type...")}
-                           className="py-2 px-3 w-100 border-0"
-                           disabled={busy}
-                           readOnly={busy}
-                           onFocus={() => set_expand(false)}
-                           onChange={(event) => set_filter(event.target.value)}/>
-                </label>
-            }
-            <div className="metadata-name-boxes">
-            {
+            <div className={(theme === "light" ? "metadata-name-boxes" : "metadata-name-boxes-dark") + " metadata-item-list"}>
+                {list.length >= 0 &&
+                    <label className="overflow-hidden w-100 mb-2">
+                        <input type="text" value={filter} placeholder={t("Filter type...")}
+                               className="metadata-selector-input"
+                               disabled={busy}
+                               readOnly={busy}
+                               onFocus={() => set_expand(false)}
+                               onChange={(event) => set_filter(event.target.value)}/>
+                    </label>
+                }
+                {
                 list.map((item, i) => {
                     return (
-                        <label className="list-group-item d-flex ps-3 pe-3 no-select" key={i}>
-                            <input className="form-check-input me-2 min-width" type="checkbox"
+                        <label className="d-flex ps-3 pe-3 no-select" key={i}>
+                            <input className="me-2 min-width" type="checkbox"
                                    checked={values[item.name] === true}
                                    readOnly={busy}
                                    disabled={busy}
@@ -153,14 +189,15 @@ export function MetadataSelector(props: MetadataSelectorProps): JSX.Element {
                             <div className="d-flex justify-content-between flex-fill">
                                 <span className="" title={"filter search results for only " + item.name + " types."}>{item.name}</span>
                                 {show_counts && ((item.count ? item.count : 0) > 0) && has_results &&
-                                    <span className="small fst-italic"
-                                          title={"the current results contain " + (has_results ? item.count : 0) + " " + item.name + " types."}>{(has_results ? item.count : 0)}</span>
+                                    <span className="small fst-italic counter-colour"
+                                          title={"the current results contain " + (has_results ? item.count?.toLocaleString() : 0) + " " + item.name + " types."}>{(has_results ? item.count?.toLocaleString() : 0)}</span>
                                 }
                             </div>
                         </label>
                     );
                 })
-            }</div>
+                }
+            </div>
             { has_reached_limit &&
                 <label className="list-group-item d-flex ps-3 pe-3 no-select"
                        title="has more items, click here to expand or use the filter to find such entities"

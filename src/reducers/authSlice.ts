@@ -1,6 +1,6 @@
 import { createAsyncThunk, createSlice, PayloadAction } from '@reduxjs/toolkit';
 import axios from "axios";
-import { get_error, get_headers } from "../common/Api";
+import {get_cookie_value, get_error, get_headers, update_cookie_value} from "../common/Api";
 import {
     AuthState,
     AuthErrorPayload,
@@ -11,6 +11,11 @@ import {
 } from '../types';
 import { useAuth } from 'react-oidc-context';
 
+// name of the ux cookie
+const ux_cookie = "ux-cookie";
+// cookie values for init store
+const show_qb = get_cookie_value(ux_cookie, "show_qb");
+
 const initialState: AuthState = {
     user: emptyUser(),
     busy: false,
@@ -19,6 +24,7 @@ const initialState: AuthState = {
     // sign-in menu
     show_menu: false,
     show_kb_menu: false,
+    show_query_builder: show_qb ? show_qb?.toLowerCase()==="true" : false,
     // message from the system to display
     system_message: '',
     // error dialog
@@ -43,8 +49,17 @@ const authSlice = createSlice({
         close_kb_menu: (state) => {
             return {...state, show_kb_menu: false, show_menu: false};
         },
+
         toggle_kb_menu: (state) => {
             return {...state, show_kb_menu: !state.show_kb_menu, show_menu: false};
+        },
+
+        toggle_query_builder: (state) => {
+            const new_show_qb = !state.show_query_builder
+            update_cookie_value(ux_cookie, "show_qb", new_show_qb ? "true":"false")
+            return {
+                ...state, show_menu: false, show_kb_menu: false, show_query_builder: new_show_qb
+            }
         },
 
         dismiss_auth_error: (state) => {
@@ -208,7 +223,7 @@ export const simsageLogOut = createAsyncThunk(
 );
 
 export const {
-    close_menu, close_kb_menu, toggle_menu,
+    close_menu, close_kb_menu, toggle_menu, toggle_query_builder,
     toggle_kb_menu, dismiss_auth_error
 } = authSlice.actions;
 export default authSlice.reducer;

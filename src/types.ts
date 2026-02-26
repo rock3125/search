@@ -7,6 +7,25 @@ declare global {
     sources: string[];
   }
 
+  interface EntityName {
+      name: string;
+      value: string;
+  }
+
+  interface SourceUrlRemap {
+    starts_with: string;
+    replace_with: string;
+  }
+
+  interface SearchFavourite {
+    organisationId: string;
+    kbId: string;
+    userId: string;
+    text: string;
+    created: number;
+    top: number;
+  }
+
   interface Window {
     ENV: {
       version: string;
@@ -15,6 +34,7 @@ declare global {
       api_version: string;
       api_base: string;
       friendly_error_messages: string;
+      file_opener_ws_port: number;
       wopi_url: string;
       wopi_api_url: string;
       preview_min_width: number;
@@ -26,6 +46,8 @@ declare global {
       score_threshold: number;
       show_preview_metadata: boolean;
       organisation_id: string;
+      date_options: Intl.DateTimeFormatOptions;
+      default_theme: string;
       page_size: number;
       fragment_count: number;
       max_word_distance: number;
@@ -34,6 +56,10 @@ declare global {
       show_download_manual: boolean;
       show_llm_menu: boolean;
       show_previews: boolean;
+      show_feedback: boolean;
+      allow_copy_url: boolean;
+      optional_search_feedback_link_title: string;
+      optional_search_feedback_link: string;
       query_ai_enabled_by_default: boolean;
       debug: boolean;
       use_spell_checker: boolean;
@@ -41,7 +67,6 @@ declare global {
       show_metadata_counts: boolean;
       use_insight: boolean;
       use_article_summary: boolean;
-      compact_view: boolean;
       allow_knowledge_base_selector: boolean;
       override_source_list: SourceOverride[];
       show_source_icon: boolean;
@@ -52,6 +77,9 @@ declare global {
       kc_client_id: string;
       customer: string;
       source_icons: {[key: string]: string};
+      source_path_remapping_osx: {[key: number]: SourceUrlRemap};
+      source_path_remapping_win: {[key: number]: SourceUrlRemap};
+      entity_list: EntityName[];
     }
   }
 
@@ -62,6 +90,7 @@ export interface KnowledgeBase {
   sourceList?: SourceItem[];
   categoryList?: MetadataItem[];
   hasLLM?: boolean;
+  supportedLanguages: string[];
   [key: string]: any;
 }
 
@@ -78,18 +107,8 @@ export interface SourceItem {
   sourceId: string;
   name: string;
   sourceType?: string;
+  storeBinary: boolean;
   [key: string]: any;
-}
-
-export interface ResultItem {
-  urlId: string;
-  url: string;
-  sourceId: string;
-  metadata: {
-    [key: string]: any;
-  };
-  [key: string]: any;
-  lastModified: number;
 }
 
 export interface MetadataItemCount {
@@ -110,9 +129,21 @@ export interface SynSetItem {
   [key: string]: any;
 }
 
+export interface UrlBoost {
+  urlId: number;
+  boostCount: number;
+}
+
+export interface SearchSuggestion {
+  kbId: string;
+  queryText: string;
+  frequency: number;
+  lastModified: number;
+}
+
 export interface SearchState {
   shard_list: number[];
-  result_list: ResultItem[];
+  result_list: SearchResult[];
 
   source_list: SourceItem[];
   source_values: {
@@ -128,8 +159,7 @@ export interface SearchState {
   pages_loaded: number;
 
   total_document_count: number;
-  group_similar: boolean;
-  newest_first: boolean;
+  sort_order: number;
   busy: boolean;
   busy_with_summary: boolean;
   busy_with_ai: boolean;
@@ -146,10 +176,10 @@ export interface SearchState {
     [key: string]: boolean;
   };
   hash_tag_list: string[];
-  boost_document_id_list: string[];
+  boost_document_id_list: UrlBoost[];
   ai_enabled: boolean;
   use_ai: boolean;
-  compact_view: boolean;
+  show_side_bar: boolean;
   show_source_icon: boolean;
   llm_search: boolean;
   fast: boolean;
@@ -157,13 +187,12 @@ export interface SearchState {
   query_ai_focus_url: string;
   query_ai_focus_url_id: number;
   query_ai_focus_title: string;
-  query_ai_dialog_list: Array<{
-    role: string;
-    content: string;
-  }>;
-  query_ai_focus_document: any;
-  llm_state: LLMState[];
+  query_ai_dialog_list: SimpleConversationItem[];
+  query_ai_focus_document: SearchResult | undefined;
   user_query: string;
+
+  llm_state: LLMState;
+  llm_state_history: LLMState[];
 
   search_focus: any;
   html_preview_list: any[];
@@ -194,10 +223,20 @@ export interface SearchState {
     [key: string]: number;
   };
   all_kbs: KnowledgeBase[];
-}
 
-export interface MessageExpandPayload {
-  index: number;
+  // specific filters
+  author: string;
+  title: string;
+  path: string;
+  after: string;
+  before: string;
+
+  search_suggestion_list: SearchSuggestion[];
+  search_favourite_list: string[];
+
+  // the current language
+  language_code: string;
+
 }
 
 export interface FocusPreviewPayload {
@@ -262,8 +301,7 @@ export interface DoSearchPayload {
   prev_search_text: string;
   prev_filter: string;
   shard_list: any[];
-  group_similar: boolean;
-  newest_first: boolean;
+  sort_order: number;
   metadata_list: MetadataItem[];
   metadata_values: any;
   entity_values: any;
@@ -271,11 +309,15 @@ export interface DoSearchPayload {
   source_values: any;
   hash_tag_list: string[];
   syn_set_values: any;
-  result_list: ResultItem[];
+  result_list: SearchResult[];
   pages_loaded: number;
   use_ai: boolean;
   next_page: boolean;
   reset_pagination: boolean;
+  author: string;
+  path: string;
+  title: string;
+  language_code: string; // en, nl, etc.
 }
 
 export interface CreateShortSummaryPayload {
@@ -284,7 +326,7 @@ export interface CreateShortSummaryPayload {
   sentence_id: string;
 }
 
-export interface TeachPayload {
+export interface BoostDocumentPayload {
   session: Session;
   search_text: string;
   result: any;
@@ -297,16 +339,27 @@ export interface AskDocumentQuestionPayload {
   prev_conversation_list: any[];
   question: string;
   document_url: string;
-  document_url_id: number;
   on_success?: () => void;
+}
+
+export interface GetSearchSuggestionsPayload {
+  session: Session;
+  text: string;
+}
+
+export interface GetSearchFavouritesPayload {
+  session: Session;
+}
+
+export interface SearchFavouritePayload {
+  session: Session;
+  text: string;
 }
 
 export interface DoLlmSearchPayload {
   session: Session;
   prev_conversation_list: any[];
   question: string;
-  metadata_list: MetadataItem[];
-  metadata_values: any;
   source_list: SourceItem[];
   source_values: any;
   focus_url?: string;
@@ -328,6 +381,35 @@ export interface DoLlmSearchStep3Payload {
   prev_conversation_list: any[];
   question: string;
   search_result: any;
+}
+
+export interface LlmLoadhistory {
+  session: Session;
+}
+
+export interface LlmSavehistory {
+  session: Session;
+  llmStateList: LLMState[];
+}
+
+export interface LlmLoadhistoryResult {
+  organisationId: string;
+  kbId: string;
+  llmStateList: LLMState[];
+}
+
+// feedback dialog data
+export interface FeedbackData {
+    reasons: string[];
+    comment: string;
+    technical: string;
+}
+
+// user feeds back if the search results for the query were helpful or not
+export interface UserQueryFeedback {
+    session: Session;
+    data: FeedbackData;
+    on_success?: () => void;
 }
 
 // Interfaces from authSlice.ts
@@ -376,6 +458,7 @@ export interface AuthState {
   organisation: Organisation;
   show_menu: boolean;
   show_kb_menu: boolean;
+  show_query_builder: boolean;
   system_message: string;
   error_message: string;
 }
@@ -400,29 +483,39 @@ export interface HashTag {
 }
 
 export interface RelatedDocument {
-  isChild: boolean;
-  title?: string;
-  webUrl?: string;
+  urlId: number; // original
+  relationshipType: number; // 0=parent, 1=child, 2=related
+  relatedUrlId: number;
+  webUrl: string;
   relatedUrl: string;
+  documentType: string;
 }
 
 export interface SimilarDocument {
   url: string;
+  metadataUrl: string;
+  urlId: number;
+  similarity: number;
 }
 
 export interface SearchResult {
-  textList?: string[];
-  similarDocumentList?: SimilarDocument[];
-  relatedList?: RelatedDocument[];
-  lastModified: number;
-  title?: string;
+  textList: string[];
+  textIndex: number;
+  similarDocumentList: SimilarDocument[];
+  relatedList: RelatedDocument[];
+  title: string;
+  filename: string;
+  folderId: string;
+  score: number;
   url: string;
-  urlId?: string;
+  urlId: number;
   metadata: Record<string, string>;
-  author?: string;
-  sourceId?: string;
-  renderType?: string;
-  firstSentence?: number;
+  author: string;
+  sourceId: number;
+  renderType: string;
+  firstSentence: number;
+  lastModified: number;
+  created: number;
 }
 
 // Interfaces from PreviewModal.tsx
@@ -463,16 +556,45 @@ export interface HeadersConfig {
   }
 }
 
+export interface ClientQueryResult {
+  shardSizeList: number[];
+  resultList: SearchResult[];
+  documentTypeToCounts: any;
+  sourceIdToCounts: any;
+  page: number;
+  boostedDocumentIDs: number[];
+  totalDocumentCount: number;
+  selectedSources: any;
+  categoryList: any;
+}
+
+export interface SimpleConversationItem {
+  role: string;
+  content: string;
+}
+
+export interface ConversationItem {
+  role: string;
+  content: string;
+  step: number;
+  aiUrlUsed: string;
+  aiUrlIdUsed: number;
+  searchKeywords: string;
+  searchResult?: ClientQueryResult;
+  expand: boolean;
+}
+
 // Define the type for llm_state to include conversationList
 export interface LLMState {
-  conversationList?: Array<{
-    role: string;
-    content: string;
-    step?: number;
-    searchKeywords?: string;
-    searchResult?: SearchResult;
-    expand?: boolean;
-  }>;
+  organisationId: string;
+  kbId: string;
+  conversationList: ConversationItem[];
+  focus_id: number;
+  documentTypeFilter: number[];
+  metadataUrl: string;
+  sourceFilter: string;
+  url: string;
+  language: string;
 }
 
 export interface WindowDimensions {
